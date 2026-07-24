@@ -1,0 +1,244 @@
+{
+  "name": "Smart Intake — main pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Настройка перед запуском\n1. Подключите Header Auth credential в ноде \"Classify with Claude\": Header Name = `x-api-key`, Header Value = ваш Anthropic API key.\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
+        "height": 360,
+        "width": 380
+      },
+      "id": "sticky-setup",
+      "name": "Sticky Note: Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-400, -200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smart-intake",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-400, 260],
+      "webhookId": "smart-intake"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"claude-haiku-4-5-20251001\",\n  max_tokens: 400,\n  system: \"Ты — ассистент поддержки. Классифицируй входящую заявку и верни СТРОГО JSON без каких-либо пояснений и markdown, в формате: {\\\"category\\\": одно из [question, order, complaint, spam, other], \\\"priority\\\": одно из [low, medium, high], \\\"summary\\\": краткое summary заявки на русском (1 предложение), \\\"suggestedReply\\\": вежливый короткий автоответ клиенту на русском}.\",\n  messages: [\n    { role: \"user\", content: $json.body.name + \": \" + $json.body.message }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "node-classify",
+      "name": "Classify with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-140, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.first().json;\nconst rawText = aiResponse.content[0].text;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  parsed = {\n    category: 'other',\n    priority: 'medium',\n    summary: webhookData.message,\n    suggestedReply: 'Спасибо за обращение, мы скоро свяжемся с вами.'\n  };\n}\n\nreturn [{\n  json: {\n    id: Date.now().toString(),\n    timestamp: new Date().toISOString(),\n    name: webhookData.name,\n    contact: webhookData.contact,\n    message: webhookData.message,\n    category: parsed.category,\n    priority: parsed.priority,\n    summary: parsed.summary,\n    suggestedReply: parsed.suggestedReply,\n    status: 'new'\n  }\n}];"
+      },
+      "id": "node-parse",
+      "name": "Parse AI Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [120, 260]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "PASTE_YOUR_SPREADSHEET_ID_HERE"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": ["id"]
+        },
+        "options": {}
+      },
+      "id": "node-sheets-append",
+      "name": "Save to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [380, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "cond-priority",
+              "leftValue": "={{$json.priority}}",
+              "rightValue": "high",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "cond-category",
+              "leftValue": "={{$json.category}}",
+              "rightValue": "complaint",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-if",
+      "name": "Urgent or Complaint?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 260]
+    },
+    {
+      "parameters": {
+        "chatId": "PASTE_MANAGER_CHAT_ID",
+        "text": "=Новая срочная заявка #{{$json.id}}\nИмя: {{$json.name}}\nКонтакт: {{$json.contact}}\nКатегория: {{$json.category}} | Приоритет: {{$json.priority}}\nСуть: {{$json.summary}}",
+        "additionalFields": {}
+      },
+      "id": "node-telegram-manager",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 140]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "PASTE_YOUR_SPREADSHEET_ID_HERE"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$('Parse AI Classification').item.json.id}}",
+            "status": "routed_to_manager"
+          },
+          "matchingColumns": ["id"]
+        },
+        "options": {}
+      },
+      "id": "node-sheets-update-routed",
+      "name": "Mark as Routed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1160, 140]
+    },
+    {
+      "parameters": {
+        "chatId": "PASTE_MANAGER_CHAT_ID",
+        "text": "=Автоответ отправлен по заявке #{{$json.id}} ({{$json.name}}):\n{{$json.suggestedReply}}",
+        "additionalFields": {}
+      },
+      "id": "node-telegram-autoreply",
+      "name": "Send Auto-Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 380]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "PASTE_YOUR_SPREADSHEET_ID_HERE"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$('Parse AI Classification').item.json.id}}",
+            "status": "auto_replied"
+          },
+          "matchingColumns": ["id"]
+        },
+        "options": {}
+      },
+      "id": "node-sheets-update-replied",
+      "name": "Mark as Auto-Replied",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1160, 380]
+    },
+    {
+      "parameters": {
+        "content": "### Demo-заглушка\nВ демо \"автоответ клиенту\" тоже уходит в Telegram менеджеру (чтобы не заводить отдельный email-аккаунт). В реальном проекте эта нода меняется на Email/SMS с контактом клиента (`{{$json.contact}}`) — остальной пайплайн не меняется.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "sticky-demo-note",
+      "name": "Sticky Note: Demo Stub",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 620]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Classify with Claude", "type": "main", "index": 0 }]]
+    },
+    "Classify with Claude": {
+      "main": [[{ "node": "Parse AI Classification", "type": "main", "index": 0 }]]
+    },
+    "Parse AI Classification": {
+      "main": [[{ "node": "Save to Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Save to Google Sheets": {
+      "main": [[{ "node": "Urgent or Complaint?", "type": "main", "index": 0 }]]
+    },
+    "Urgent or Complaint?": {
+      "main": [
+        [{ "node": "Notify Manager", "type": "main", "index": 0 }],
+        [{ "node": "Send Auto-Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Manager": {
+      "main": [[{ "node": "Mark as Routed", "type": "main", "index": 0 }]]
+    },
+    "Send Auto-Reply": {
+      "main": [[{ "node": "Mark as Auto-Replied", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

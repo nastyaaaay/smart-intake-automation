@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Оставить заявку — демо</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --border: #e5e7eb;
+    --success: #16a34a;
+    --error: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --card: #1f2023;
+      --text: #f2f2f3;
+      --muted: #9ca3af;
+      --border: #33353a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 24px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    margin-top: 16px;
+  }
+  input, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 88px; }
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  button {
+    margin-top: 24px;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .status {
+    margin-top: 16px;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    display: none;
+  }
+  .status.show { display: block; }
+  .status.ok { background: rgba(22,163,74,0.12); color: var(--success); }
+  .status.err { background: rgba(220,38,38,0.12); color: var(--error); }
+  .hint {
+    margin-top: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  code {
+    background: rgba(127,127,127,0.15);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Оставить заявку</h1>
+    <p class="subtitle">Демо-форма для проекта Smart Intake Automation</p>
+
+    <form id="intake-form">
+      <label for="name">Имя</label>
+      <input id="name" name="name" type="text" required>
+
+      <label for="contact">Контакт (email или телефон)</label>
+      <input id="contact" name="contact" type="text" required>
+
+      <label for="message">Сообщение</label>
+      <textarea id="message" name="message" required></textarea>
+
+      <button type="submit" id="submit-btn">Отправить заявку</button>
+    </form>
+
+    <div class="status" id="status"></div>
+
+    <p class="hint">
+      Заявка уходит POST-запросом на n8n webhook. Перед использованием замените
+      константу <code>WEBHOOK_URL</code> в &lt;script&gt; на Production URL вашего
+      Webhook-узла из n8n.
+    </p>
+  </div>
+
+<script>
+  // Замените на Production URL ноды Webhook из n8n (workflow-intake.json)
+  const WEBHOOK_URL = "http://localhost:5678/webhook/smart-intake";
+
+  const form = document.getElementById("intake-form");
+  const statusEl = document.getElementById("status");
+  const submitBtn = document.getElementById("submit-btn");
+
+  function showStatus(kind, text) {
+    statusEl.textContent = text;
+    statusEl.className = "status show " + kind;
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Отправляем...";
+
+    const payload = {
+      name: form.name.value.trim(),
+      contact: form.contact.value.trim(),
+      message: form.message.value.trim(),
+      submittedAt: new Date().toISOString()
+    };
+
+    try {
+      const res = await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error("HTTP " + res.status);
+
+      showStatus("ok", "Заявка отправлена. Спасибо! Мы свяжемся с вами.");
+      form.reset();
+    } catch (err) {
+      showStatus("err", "Не получилось отправить: " + err.message + ". Проверьте, что n8n запущен и WEBHOOK_URL верный.");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Отправить заявку";
+    }
+  });
+</script>
+</body>
+</html>
