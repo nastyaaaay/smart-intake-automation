@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Настройка перед запуском\n1. Подключите Header Auth credential в ноде \"Classify with Claude\": Header Name = `x-api-key`, Header Value = ваш Anthropic API key.\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
+        "content": "## Настройка перед запуском\n1. Подключите Header Auth credential в ноде \"Classify with Gemini\": Header Name = `x-goog-api-key`, Header Value = ваш Google AI Studio API key (aistudio.google.com/apikey, бесплатно).\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
         "height": 360,
         "width": 380
       },
@@ -30,30 +30,29 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.anthropic.com/v1/messages",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "anthropic-version", "value": "2023-06-01" },
             { "name": "content-type", "value": "application/json" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  model: \"claude-haiku-4-5-20251001\",\n  max_tokens: 400,\n  system: \"Ты — ассистент поддержки. Классифицируй входящую заявку и верни СТРОГО JSON без каких-либо пояснений и markdown, в формате: {\\\"category\\\": одно из [question, order, complaint, spam, other], \\\"priority\\\": одно из [low, medium, high], \\\"summary\\\": краткое summary заявки на русском (1 предложение), \\\"suggestedReply\\\": вежливый короткий автоответ клиенту на русском}.\",\n  messages: [\n    { role: \"user\", content: $json.body.name + \": \" + $json.body.message }\n  ]\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  systemInstruction: {\n    parts: [{ text: \"Ты — ассистент поддержки. Классифицируй входящую заявку и верни СТРОГО JSON без каких-либо пояснений и markdown, в формате: {\\\"category\\\": одно из [question, order, complaint, spam, other], \\\"priority\\\": одно из [low, medium, high], \\\"summary\\\": краткое summary заявки на русском (1 предложение), \\\"suggestedReply\\\": вежливый короткий автоответ клиенту на русском}.\" }]\n  },\n  contents: [\n    { role: \"user\", parts: [{ text: $json.body.name + \": \" + $json.body.message }] }\n  ],\n  generationConfig: { temperature: 0.3, maxOutputTokens: 400 }\n}) }}",
         "options": {}
       },
       "id": "node-classify",
-      "name": "Classify with Claude",
+      "name": "Classify with Gemini",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-140, 260]
     },
     {
       "parameters": {
-        "jsCode": "const webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.first().json;\nconst rawText = aiResponse.content[0].text;\n\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  parsed = {\n    category: 'other',\n    priority: 'medium',\n    summary: webhookData.message,\n    suggestedReply: 'Спасибо за обращение, мы скоро свяжемся с вами.'\n  };\n}\n\nreturn [{\n  json: {\n    id: Date.now().toString(),\n    timestamp: new Date().toISOString(),\n    name: webhookData.name,\n    contact: webhookData.contact,\n    message: webhookData.message,\n    category: parsed.category,\n    priority: parsed.priority,\n    summary: parsed.summary,\n    suggestedReply: parsed.suggestedReply,\n    status: 'new'\n  }\n}];"
+        "jsCode": "const webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.first().json;\nconst rawText = aiResponse.candidates[0].content.parts[0].text;\nconst cleanText = rawText.replace(/```json\\s*|```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleanText);\n} catch (e) {\n  parsed = {\n    category: 'other',\n    priority: 'medium',\n    summary: webhookData.message,\n    suggestedReply: 'Спасибо за обращение, мы скоро свяжемся с вами.'\n  };\n}\n\nreturn [{\n  json: {\n    id: Date.now().toString(),\n    timestamp: new Date().toISOString(),\n    name: webhookData.name,\n    contact: webhookData.contact,\n    message: webhookData.message,\n    category: parsed.category,\n    priority: parsed.priority,\n    summary: parsed.summary,\n    suggestedReply: parsed.suggestedReply,\n    status: 'new'\n  }\n}];"
       },
       "id": "node-parse",
       "name": "Parse AI Classification",
@@ -210,9 +209,9 @@
   ],
   "connections": {
     "Webhook": {
-      "main": [[{ "node": "Classify with Claude", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Classify with Gemini", "type": "main", "index": 0 }]]
     },
-    "Classify with Claude": {
+    "Classify with Gemini": {
       "main": [[{ "node": "Parse AI Classification", "type": "main", "index": 0 }]]
     },
     "Parse AI Classification": {
