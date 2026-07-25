@@ -1,6 +1,6 @@
 # Smart Intake Automation
 
-Автоматизация обработки входящих заявок: n8n-сценарий + ИИ-агент (Claude), который классифицирует заявку, кладёт её в Google Sheets как лёгкую CRM, уведомляет менеджера о срочных случаях и сам отвечает на типовые вопросы. Плюс внутренний Telegram-бот для проверки статуса заявки.
+Автоматизация обработки входящих заявок: n8n-сценарий + ИИ-агент (локальная LLM через Ollama), который классифицирует заявку, кладёт её в Google Sheets как лёгкую CRM, уведомляет менеджера о срочных случаях и сам отвечает на типовые вопросы. Плюс внутренний Telegram-бот для проверки статуса заявки.
 
 Проект сделан как демонстрация одного цельного кейса, а не набора несвязанных скриптов: разбор ручного процесса → алгоритм → n8n-сценарий → ИИ-агент → внутренний бот.
 
@@ -20,7 +20,7 @@
 ```mermaid
 flowchart TD
     A[Клиент отправляет заявку<br/>HTML-форма] --> B[n8n: Webhook]
-    B --> C[ИИ-агент Claude:<br/>категория + приоритет + summary]
+    B --> C[ИИ-агент Ollama:<br/>категория + приоритет + summary]
     C --> D[Google Sheets:<br/>запись строки — лог/CRM]
     D --> E{Приоритет высокий<br/>или жалоба?}
     E -- да --> F[Telegram: уведомление менеджеру<br/>с кратким summary]
@@ -35,7 +35,7 @@ flowchart TD
 | Часть | Инструмент | Почему |
 |---|---|---|
 | Оркестрация | [n8n](https://n8n.io) (self-hosted, `npx n8n`) | низкий код, вебхуки и API "из коробки", легко показать сценарий визуально |
-| Классификация/автоответ | Anthropic Claude (нода AI Agent / Chat Model) | нативная интеграция в n8n, дёшево для коротких классификаций |
+| Классификация/автоответ | Локальная LLM через [Ollama](https://ollama.com) (`qwen2.5:7b-instruct`, HTTP Request к `/api/chat` + JSON-schema `format` для гарантированно валидного JSON) | без внешних API, без ключей и лимитов; изначально пробовали Google Gemini free tier — уткнулись в постоянный `429` (бесплатная квота фактически недоступна для аккаунтов не из поддерживаемого региона), поэтому переехали на локальную модель |
 | Хранилище заявок | Google Sheets | не требует поднимать БД, у большинства небольших команд уже есть — реалистичная заглушка вместо полноценной CRM |
 | Уведомления/бот | Telegram Bot API | бесплатно, мгновенная настройка через @BotFather |
 | Демо-вход | статическая HTML-форма | не нужен бэкенд, чтобы показать пайплайн end-to-end |
@@ -72,15 +72,17 @@ npx n8n
 
 ### 2. Завести доступы (сделать самостоятельно — я не создаю аккаунты за вас)
 
-- **Google Sheets**: создать таблицу с колонками `id, timestamp, name, contact, message, category, priority, summary, status`. Для подключения n8n к Google Sheets: в ноде Google Sheets → Create New Credential → n8n откроет стандартный Google OAuth-консент (не нужен отдельный проект в Google Cloud Console для личного использования).
+- **Google Sheets**: создать таблицу с колонками `id, timestamp, name, contact, message, category, priority, summary, status`. Self-hosted n8n требует собственный OAuth Client ID/Secret из [Google Cloud Console](https://console.cloud.google.com) (Google Sheets API + Google Drive API включены, redirect URI — `http://localhost:5678/rest/oauth2-credential/callback`), затем вход через Google прямо в форме credential.
 - **Telegram-бот**: написать [@BotFather](https://t.me/BotFather) в Telegram → `/newbot` → получить токен. Написать боту любое сообщение, чтобы узнать свой `chat_id` (например через `/getUpdates` в Bot API или бота @userinfobot).
-- **Anthropic API key**: получить на [console.anthropic.com](https://console.anthropic.com) → API Keys. Требует привязки способа оплаты, но расход на классификацию коротких заявок минимален.
+- **Ollama**: установить [ollama.com](https://ollama.com), скачать модель (`ollama pull qwen2.5:7b-instruct`) и держать сервер запущенным (`ollama serve`). Если n8n и Ollama на разных машинах в одной сети — Ollama нужно запустить с `OLLAMA_HOST=0.0.0.0:11434`, чтобы он слушал не только localhost, и открыть порт 11434 в файрволе (лучше ограничить доступ локальной подсетью). Ключ/токен не нужен.
 
 ### 3. Импортировать сценарии
 
 В n8n UI: `⋯` → **Import from File** → выбрать `n8n/workflow-intake.json`, затем `n8n/workflow-status-bot.json`.
 
-В каждом workflow подключить свои credentials (Google Sheets, Anthropic, Telegram) в соответствующих нодах — они отмечены комментариями (sticky notes) прямо в сценарии.
+В каждом workflow подключить свои credentials (Google Sheets, Telegram) и указать адрес своего Ollama-сервера в ноде "Classify with Ollama" — они отмечены комментариями (sticky notes) прямо в сценарии.
+
+**Про статус-бота отдельно:** `workflow-status-bot.json` использует ноду `Telegram Trigger`, а Telegram API принимает webhook только по HTTPS. На локальном `http://localhost:5678` активировать эту ноду не получится ("Bad Request: bad webhook: An HTTPS URL must be provided for webhook") — нужен публичный HTTPS-адрес (туннель вроде ngrok/Cloudflare Tunnel или деплой n8n с реальным сертификатом). Основной пайплайн (`workflow-intake.json`) от этого не зависит — он только отправляет сообщения в Telegram, а не принимает, поэтому прекрасно работает на localhost.
 
 ### 4. Прогнать демо
 
@@ -88,7 +90,7 @@ npx n8n
 
 - строка появилась в Google Sheets;
 - пришло Telegram-уведомление (для срочной заявки) или автоответ (для обычной);
-- команда `/status <id>` в Telegram-боте возвращает статус этой заявки.
+- команда `/status <id>` в Telegram-боте возвращает статус этой заявки (требует публичный HTTPS, см. выше).
 
 ## Демо
 
