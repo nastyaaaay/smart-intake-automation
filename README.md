@@ -55,7 +55,9 @@ smart-intake-automation/
 │   ├── workflow-intake.json       — основной пайплайн
 │   └── workflow-status-bot.json   — Telegram-бот статуса
 └── docs/
-    └── (сюда позже — скриншоты / GIF демо-прогона)
+    ├── demo-form.png            — демо-форма
+    ├── demo-google-sheets.png   — результат в Google Sheets
+    └── demo-telegram.png        — уведомления в Telegram
 ```
 
 ## Как запустить
@@ -94,4 +96,16 @@ npx n8n
 
 ## Демо
 
-*(сюда — скриншоты или GIF реального прогона после первого теста)*
+Реальный прогон: одна обычная заявка (вопрос про стоимость) и одна срочная жалоба.
+
+**Демо-форма**
+
+![Демо-форма](docs/demo-form.png)
+
+**Результат в Google Sheets** — обе заявки классифицированы (category/priority/summary/suggestedReply), статусы `auto_replied` и `routed_to_manager`:
+
+![Google Sheets](docs/demo-google-sheets.png)
+
+**Уведомления в Telegram** — автоответ клиенту по обычной заявке и алерт менеджеру по срочной жалобе:
+
+![Telegram](docs/demo-telegram.png)
