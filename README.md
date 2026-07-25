@@ -65,6 +65,7 @@ smart-intake-automation/
 └── docs/
     ├── demo-form.png            — демо-форма
     ├── demo-google-sheets.png   — результат в Google Sheets
+    ├── demo-n8n-pipeline.png    — путь заявки в n8n
     └── demo-telegram.png        — уведомления в Telegram
 ```
 
