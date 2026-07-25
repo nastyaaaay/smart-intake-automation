@@ -144,6 +144,12 @@
 <script>
   // Замените на Production URL ноды Webhook из n8n (workflow-intake.json)
   const WEBHOOK_URL = "http://localhost:5678/webhook/smart-intake";
+  // Тот же секрет, что в переменной окружения INTAKE_SHARED_SECRET, которой запущен n8n (см. README).
+  // Это не полноценная защита — секрет виден в исходнике страницы всем, кто
+  // откроет DevTools — но отсекает случайный/автоматический спам по URL.
+  // Для реальной защиты публичной формы нужен бэкенд-прокси, который добавляет
+  // заголовок сам, не раскрывая секрет клиенту.
+  const INTAKE_SECRET = "REPLACE_WITH_YOUR_SECRET";
 
   const form = document.getElementById("intake-form");
   const statusEl = document.getElementById("status");
@@ -169,7 +175,10 @@
     try {
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-intake-secret": INTAKE_SECRET
+        },
         body: JSON.stringify(payload)
       });
 
