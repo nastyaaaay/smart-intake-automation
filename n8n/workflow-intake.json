@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Настройка перед запуском\n1. Подключите Header Auth credential в ноде \"Classify with Gemini\": Header Name = `x-goog-api-key`, Header Value = ваш Google AI Studio API key (aistudio.google.com/apikey, бесплатно).\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
+        "content": "## Настройка перед запуском\n1. Нода \"Classify with Ollama\" обращается к локальному/сетевому Ollama-серверу (например `http://192.168.1.202:11434/api/chat`) — поменяйте URL на адрес своего сервера с моделью (например `qwen2.5:7b-instruct`). Авторизация не нужна.\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
         "height": 360,
         "width": 380
       },
@@ -30,9 +30,8 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "http://192.168.1.202:11434/api/chat",
+        "authentication": "none",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -41,18 +40,18 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({\n  systemInstruction: {\n    parts: [{ text: \"Ты — ассистент поддержки. Классифицируй входящую заявку и верни СТРОГО JSON без каких-либо пояснений и markdown, в формате: {\\\"category\\\": одно из [question, order, complaint, spam, other], \\\"priority\\\": одно из [low, medium, high], \\\"summary\\\": краткое summary заявки на русском (1 предложение), \\\"suggestedReply\\\": вежливый короткий автоответ клиенту на русском}.\" }]\n  },\n  contents: [\n    { role: \"user\", parts: [{ text: $json.body.name + \": \" + $json.body.message }] }\n  ],\n  generationConfig: { temperature: 0.3, maxOutputTokens: 400 }\n}) }}",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"qwen2.5:7b-instruct\",\n  messages: [\n    { role: \"system\", content: \"Ты — ассистент поддержки. Классифицируй входящую заявку и верни JSON, в формате: category (одно из: question, order, complaint, spam, other), priority (одно из: low, medium, high), summary (краткое summary заявки на русском, 1 предложение), suggestedReply (вежливый короткий автоответ клиенту на русском). Отвечай строго на основе текста заявки, не выдумывай детали.\" },\n    { role: \"user\", content: $json.body.name + \": \" + $json.body.message }\n  ],\n  format: {\n    type: \"object\",\n    properties: {\n      category: { type: \"string\", enum: [\"question\",\"order\",\"complaint\",\"spam\",\"other\"] },\n      priority: { type: \"string\", enum: [\"low\",\"medium\",\"high\"] },\n      summary: { type: \"string\" },\n      suggestedReply: { type: \"string\" }\n    },\n    required: [\"category\",\"priority\",\"summary\",\"suggestedReply\"]\n  },\n  options: { temperature: 0 },\n  stream: false\n}) }}",
         "options": {}
       },
       "id": "node-classify",
-      "name": "Classify with Gemini",
+      "name": "Classify with Ollama",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [-140, 260]
     },
     {
       "parameters": {
-        "jsCode": "const webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.first().json;\nconst rawText = aiResponse.candidates[0].content.parts[0].text;\nconst cleanText = rawText.replace(/```json\\s*|```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleanText);\n} catch (e) {\n  parsed = {\n    category: 'other',\n    priority: 'medium',\n    summary: webhookData.message,\n    suggestedReply: 'Спасибо за обращение, мы скоро свяжемся с вами.'\n  };\n}\n\nreturn [{\n  json: {\n    id: Date.now().toString(),\n    timestamp: new Date().toISOString(),\n    name: webhookData.name,\n    contact: webhookData.contact,\n    message: webhookData.message,\n    category: parsed.category,\n    priority: parsed.priority,\n    summary: parsed.summary,\n    suggestedReply: parsed.suggestedReply,\n    status: 'new'\n  }\n}];"
+        "jsCode": "const webhookData = $('Webhook').item.json.body;\nconst aiResponse = $input.first().json;\nconst rawText = aiResponse.message.content;\nconst cleanText = rawText.replace(/```json\\s*|```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleanText);\n} catch (e) {\n  parsed = {\n    category: 'other',\n    priority: 'medium',\n    summary: webhookData.message,\n    suggestedReply: 'Спасибо за обращение, мы скоро свяжемся с вами.'\n  };\n}\n\nreturn [{\n  json: {\n    id: Date.now().toString(),\n    timestamp: new Date().toISOString(),\n    name: webhookData.name,\n    contact: webhookData.contact,\n    message: webhookData.message,\n    category: parsed.category,\n    priority: parsed.priority,\n    summary: parsed.summary,\n    suggestedReply: parsed.suggestedReply,\n    status: 'new'\n  }\n}];"
       },
       "id": "node-parse",
       "name": "Parse AI Classification",
@@ -209,9 +208,9 @@
   ],
   "connections": {
     "Webhook": {
-      "main": [[{ "node": "Classify with Gemini", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Classify with Ollama", "type": "main", "index": 0 }]]
     },
-    "Classify with Gemini": {
+    "Classify with Ollama": {
       "main": [[{ "node": "Parse AI Classification", "type": "main", "index": 0 }]]
     },
     "Parse AI Classification": {

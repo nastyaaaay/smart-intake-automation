@@ -1,6 +1,6 @@
 # Smart Intake Automation
 
-Автоматизация обработки входящих заявок: n8n-сценарий + ИИ-агент (Google Gemini), который классифицирует заявку, кладёт её в Google Sheets как лёгкую CRM, уведомляет менеджера о срочных случаях и сам отвечает на типовые вопросы. Плюс внутренний Telegram-бот для проверки статуса заявки.
+Автоматизация обработки входящих заявок: n8n-сценарий + ИИ-агент (локальная LLM через Ollama), который классифицирует заявку, кладёт её в Google Sheets как лёгкую CRM, уведомляет менеджера о срочных случаях и сам отвечает на типовые вопросы. Плюс внутренний Telegram-бот для проверки статуса заявки.
 
 Проект сделан как демонстрация одного цельного кейса, а не набора несвязанных скриптов: разбор ручного процесса → алгоритм → n8n-сценарий → ИИ-агент → внутренний бот.
 
@@ -20,7 +20,7 @@
 ```mermaid
 flowchart TD
     A[Клиент отправляет заявку<br/>HTML-форма] --> B[n8n: Webhook]
-    B --> C[ИИ-агент Gemini:<br/>категория + приоритет + summary]
+    B --> C[ИИ-агент Ollama:<br/>категория + приоритет + summary]
     C --> D[Google Sheets:<br/>запись строки — лог/CRM]
     D --> E{Приоритет высокий<br/>или жалоба?}
     E -- да --> F[Telegram: уведомление менеджеру<br/>с кратким summary]
@@ -35,7 +35,7 @@ flowchart TD
 | Часть | Инструмент | Почему |
 |---|---|---|
 | Оркестрация | [n8n](https://n8n.io) (self-hosted, `npx n8n`) | низкий код, вебхуки и API "из коробки", легко показать сценарий визуально |
-| Классификация/автоответ | Google Gemini (`gemini-2.0-flash` через HTTP Request) | бесплатный тариф без карты, тот же Google-аккаунт, что и Sheets |
+| Классификация/автоответ | Локальная LLM через [Ollama](https://ollama.com) (`qwen2.5:7b-instruct`, HTTP Request к `/api/chat` + JSON-schema `format` для гарантированно валидного JSON) | без внешних API, без ключей и лимитов; изначально пробовали Google Gemini free tier — уткнулись в постоянный `429` (бесплатная квота фактически недоступна для аккаунтов не из поддерживаемого региона), поэтому переехали на локальную модель |
 | Хранилище заявок | Google Sheets | не требует поднимать БД, у большинства небольших команд уже есть — реалистичная заглушка вместо полноценной CRM |
 | Уведомления/бот | Telegram Bot API | бесплатно, мгновенная настройка через @BotFather |
 | Демо-вход | статическая HTML-форма | не нужен бэкенд, чтобы показать пайплайн end-to-end |
@@ -74,13 +74,13 @@ npx n8n
 
 - **Google Sheets**: создать таблицу с колонками `id, timestamp, name, contact, message, category, priority, summary, status`. Self-hosted n8n требует собственный OAuth Client ID/Secret из [Google Cloud Console](https://console.cloud.google.com) (Google Sheets API + Google Drive API включены, redirect URI — `http://localhost:5678/rest/oauth2-credential/callback`), затем вход через Google прямо в форме credential.
 - **Telegram-бот**: написать [@BotFather](https://t.me/BotFather) в Telegram → `/newbot` → получить токен. Написать боту любое сообщение, чтобы узнать свой `chat_id` (например через `/getUpdates` в Bot API или бота @userinfobot).
-- **Google Gemini API key**: получить бесплатно на [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (тот же Google-аккаунт, без привязки карты для free tier) → Create API key.
+- **Ollama**: установить [ollama.com](https://ollama.com), скачать модель (`ollama pull qwen2.5:7b-instruct`) и держать сервер запущенным (`ollama serve`). Если n8n и Ollama на разных машинах в одной сети — Ollama нужно запустить с `OLLAMA_HOST=0.0.0.0:11434`, чтобы он слушал не только localhost, и открыть порт 11434 в файрволе (лучше ограничить доступ локальной подсетью). Ключ/токен не нужен.
 
 ### 3. Импортировать сценарии
 
 В n8n UI: `⋯` → **Import from File** → выбрать `n8n/workflow-intake.json`, затем `n8n/workflow-status-bot.json`.
 
-В каждом workflow подключить свои credentials (Google Sheets, Gemini, Telegram) в соответствующих нодах — они отмечены комментариями (sticky notes) прямо в сценарии.
+В каждом workflow подключить свои credentials (Google Sheets, Telegram) и указать адрес своего Ollama-сервера в ноде "Classify with Ollama" — они отмечены комментариями (sticky notes) прямо в сценарии.
 
 ### 4. Прогнать демо
 
