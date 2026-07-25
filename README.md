@@ -82,13 +82,15 @@ npx n8n
 
 В каждом workflow подключить свои credentials (Google Sheets, Telegram) и указать адрес своего Ollama-сервера в ноде "Classify with Ollama" — они отмечены комментариями (sticky notes) прямо в сценарии.
 
+**Про статус-бота отдельно:** `workflow-status-bot.json` использует ноду `Telegram Trigger`, а Telegram API принимает webhook только по HTTPS. На локальном `http://localhost:5678` активировать эту ноду не получится ("Bad Request: bad webhook: An HTTPS URL must be provided for webhook") — нужен публичный HTTPS-адрес (туннель вроде ngrok/Cloudflare Tunnel или деплой n8n с реальным сертификатом). Основной пайплайн (`workflow-intake.json`) от этого не зависит — он только отправляет сообщения в Telegram, а не принимает, поэтому прекрасно работает на localhost.
+
 ### 4. Прогнать демо
 
 Открыть `form/index.html` в браузере, в коде поправить константу `WEBHOOK_URL` на адрес вебхука из n8n (Production URL ноды Webhook), отправить тестовую заявку и посмотреть:
 
 - строка появилась в Google Sheets;
 - пришло Telegram-уведомление (для срочной заявки) или автоответ (для обычной);
-- команда `/status <id>` в Telegram-боте возвращает статус этой заявки.
+- команда `/status <id>` в Telegram-боте возвращает статус этой заявки (требует публичный HTTPS, см. выше).
 
 ## Демо
 
