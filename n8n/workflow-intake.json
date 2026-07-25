@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Настройка перед запуском\n1. Нода \"Classify with Ollama\" обращается к локальному/сетевому Ollama-серверу (например `http://192.168.1.202:11434/api/chat`) — поменяйте URL на адрес своего сервера с моделью (например `qwen2.5:7b-instruct`). Авторизация не нужна.\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы.",
-        "height": 360,
+        "content": "## Настройка перед запуском\n1. Нода \"Classify with Ollama\" обращается к локальному/сетевому Ollama-серверу (например `http://192.168.1.202:11434/api/chat`) — поменяйте URL на адрес своего сервера с моделью (например `qwen2.5:7b-instruct`). Авторизация не нужна.\n2. Подключите Google Sheets credential в обеих Google Sheets нодах и укажите ID своей таблицы + имя листа.\n3. Подключите Telegram credential (Bot Token) в обеих Telegram нодах и укажите chat_id менеджера.\n4. Запустите n8n с переменной окружения `INTAKE_SHARED_SECRET=ваш-секрет npx n8n` (ноде \"Check Shared Secret\" нужен этот же секрет в заголовке `x-intake-secret`, иначе запрос отклоняется).\n5. Активируйте workflow и скопируйте Production URL из ноды Webhook в `WEBHOOK_URL` демо-формы, а секрет — в `INTAKE_SECRET`.",
+        "height": 400,
         "width": 380
       },
       "id": "sticky-setup",
@@ -26,6 +26,42 @@
       "typeVersion": 2,
       "position": [-400, 260],
       "webhookId": "smart-intake"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-secret",
+              "leftValue": "={{$json.headers['x-intake-secret']}}",
+              "rightValue": "={{$env.INTAKE_SHARED_SECRET}}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-check-secret",
+      "name": "Check Shared Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-270, 260]
+    },
+    {
+      "parameters": {
+        "errorMessage": "Unauthorized: missing or invalid x-intake-secret header"
+      },
+      "id": "node-auth-reject",
+      "name": "Unauthorized",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [-270, 420]
     },
     {
       "parameters": {
@@ -208,7 +244,13 @@
   ],
   "connections": {
     "Webhook": {
-      "main": [[{ "node": "Classify with Ollama", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Check Shared Secret", "type": "main", "index": 0 }]]
+    },
+    "Check Shared Secret": {
+      "main": [
+        [{ "node": "Classify with Ollama", "type": "main", "index": 0 }],
+        [{ "node": "Unauthorized", "type": "main", "index": 0 }]
+      ]
     },
     "Classify with Ollama": {
       "main": [[{ "node": "Parse AI Classification", "type": "main", "index": 0 }]]

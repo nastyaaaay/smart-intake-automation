@@ -20,7 +20,9 @@
 ```mermaid
 flowchart TD
     A[Клиент отправляет заявку<br/>HTML-форма] --> B[n8n: Webhook]
-    B --> C[ИИ-агент Ollama:<br/>категория + приоритет + summary]
+    B --> B2{Секрет в заголовке верный?}
+    B2 -- нет --> B3[401: запрос отклонён]
+    B2 -- да --> C[ИИ-агент Ollama:<br/>категория + приоритет + summary]
     C --> D[Google Sheets:<br/>запись строки — лог/CRM]
     D --> E{Приоритет высокий<br/>или жалоба?}
     E -- да --> F[Telegram: уведомление менеджеру<br/>с кратким summary]
@@ -72,6 +74,14 @@ npx n8n
 
 Откроется на `http://localhost:5678`. При первом запуске n8n попросит создать локального пользователя (это учётка только внутри самого n8n, не онлайн-сервис).
 
+Для проверки shared-secret на вебхуке (см. раздел "Безопасность") нужна переменная окружения, так что на практике запуск выглядит так:
+
+```bash
+INTAKE_SHARED_SECRET=ваш-секрет N8N_BLOCK_ENV_ACCESS_IN_NODE=false npx n8n
+```
+
+(В n8n Variables — платная фича, поэтому секрет передаётся через `$env`, а не `$vars`. А `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` нужен, потому что начиная с какой-то версии n8n по умолчанию блокирует нодам доступ к переменным окружения — без этого флага нода "Check Shared Secret" не сможет прочитать `$env.INTAKE_SHARED_SECRET` и упадёт с `access to env vars denied`.)
+
 ### 2. Завести доступы (сделать самостоятельно — я не создаю аккаунты за вас)
 
 - **Google Sheets**: создать таблицу с колонками `id, timestamp, name, contact, message, category, priority, summary, status`. Self-hosted n8n требует собственный OAuth Client ID/Secret из [Google Cloud Console](https://console.cloud.google.com) (Google Sheets API + Google Drive API включены, redirect URI — `http://localhost:5678/rest/oauth2-credential/callback`), затем вход через Google прямо в форме credential.
@@ -84,11 +94,13 @@ npx n8n
 
 В каждом workflow подключить свои credentials (Google Sheets, Telegram) и указать адрес своего Ollama-сервера в ноде "Classify with Ollama" — они отмечены комментариями (sticky notes) прямо в сценарии.
 
+Убедитесь, что n8n запущен с переменной `INTAKE_SHARED_SECRET` (см. шаг 1) — нода "Check Shared Secret" сверяет её с заголовком `x-intake-secret` во входящем запросе, отклоняя всё остальное (см. раздел "Безопасность" ниже).
+
 **Про статус-бота отдельно:** `workflow-status-bot.json` использует ноду `Telegram Trigger`, а Telegram API принимает webhook только по HTTPS. На локальном `http://localhost:5678` активировать эту ноду не получится ("Bad Request: bad webhook: An HTTPS URL must be provided for webhook") — нужен публичный HTTPS-адрес (туннель вроде ngrok/Cloudflare Tunnel или деплой n8n с реальным сертификатом). Основной пайплайн (`workflow-intake.json`) от этого не зависит — он только отправляет сообщения в Telegram, а не принимает, поэтому прекрасно работает на localhost.
 
 ### 4. Прогнать демо
 
-Открыть `form/index.html` в браузере, в коде поправить константу `WEBHOOK_URL` на адрес вебхука из n8n (Production URL ноды Webhook), отправить тестовую заявку и посмотреть:
+Открыть `form/index.html` в браузере, в коде поправить константы `WEBHOOK_URL` (Production URL ноды Webhook) и `INTAKE_SECRET` (то же значение, что в переменной окружения `INTAKE_SHARED_SECRET`, которой запущен n8n), отправить тестовую заявку и посмотреть:
 
 - строка появилась в Google Sheets;
 - пришло Telegram-уведомление (для срочной заявки) или автоответ (для обычной);
@@ -109,6 +121,15 @@ npx n8n
 **Уведомления в Telegram** — автоответ клиенту по обычной заявке и алерт менеджеру по срочной жалобе:
 
 ![Telegram](docs/demo-telegram.png)
+
+## Безопасность
+
+Прогнала security-аудит (secrets archaeology по всей git-истории + разбор webhook/LLM/OWASP-поверхности). Полная история — [issue #3](https://github.com/nastyaaaay/smart-intake-automation/issues/3).
+
+- **Секретов в репозитории и его истории нет** — ни ключей, ни токенов, ни `.env`.
+- **Webhook защищён shared-secret заголовком** (`x-intake-secret`, нода "Check Shared Secret") — раньше эндпоинт принимал вообще любой POST без проверки, что позволяло бы засыпать Telegram фейковыми "срочными жалобами" и накручивать бесплатные вызовы LLM. Пофиксено.
+- **Known limitation**: секрет лежит в JS-константе на клиенте (`form/index.html`) — это отсекает случайный/автоматический спам по угаданному URL, но не остановит того, кто откроет DevTools и прочитает исходник страницы. Для полноценной защиты публичной формы нужен бэкенд-прокси, который добавляет заголовок сам, не раскрывая секрет клиенту — но для демо-проекта без бэкенда это осознанный компромисс, не забытый недочёт.
+- **Rate limiting не реализован** — при реальном деплое стоит добавить его на уровне reverse-proxy (nginx `limit_req` и т.п.).
 
 ## Лицензия
 
